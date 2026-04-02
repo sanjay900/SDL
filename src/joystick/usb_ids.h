@@ -49,6 +49,7 @@
 #define USB_VENDOR_NINTENDO     0x057e
 #define USB_VENDOR_NVIDIA       0x0955
 #define USB_VENDOR_PDP          0x0e6f
+#define USB_VENDOR_PID_CODES    0x1209
 #define USB_VENDOR_POWERA       0x24c6
 #define USB_VENDOR_POWERA_ALT   0x20d6
 #define USB_VENDOR_QANBA        0x2c22
@@ -155,6 +156,7 @@
 #define USB_PRODUCT_RAZER_WOLVERINE_V3_PRO                0x0a3f
 #define USB_PRODUCT_RED_OCTANE_XB1_GUITAR_HERO_LIVE_GUITAR 0x0170
 #define USB_PRODUCT_SAITEK_CYBORG_V3                      0xf622
+#define USB_PRODUCT_SANTROLLER_SANTROLLER                 0x2882
 #define USB_PRODUCT_SCEA_PS3_GH_GUITAR                    0x0100
 #define USB_PRODUCT_SCEA_PS3_GH_DRUMS                     0x0120
 #define USB_PRODUCT_SCEA_PS3_RB_GUITAR                    0x0200
