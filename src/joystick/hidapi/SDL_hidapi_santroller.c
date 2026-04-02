@@ -27,7 +27,8 @@
 
 #include "SDL_hidapijoystick_c.h"
 #include "SDL_hidapi_rumble.h"
-#include "SDL_hidapi_sinput.h"
+#include "SDL_hidapi_santroller.h"
+#include "SDL_report_descriptor.h"
 
 #ifdef SDL_JOYSTICK_HIDAPI_SANTROLLER
 
@@ -49,6 +50,7 @@
 #define SANTROLLER_DEVICE_REPORT_SIZE           64 // Size of input reports (And CMD Input reports)
 #define SANTROLLER_DEVICE_REPORT_COMMAND_SIZE   48 // Size of command OUTPUT reports
 #define SANTROLLER_DEVICE_FEATURES_REPORT_SIZE  2  // Size of features report
+#define SANTROLLER_DEVICE_FEATURES_USAGE        0x2021  // Usage page for features report
 
 #define SANTROLLER_DEVICE_REPORT_ID_JOYSTICK_INPUT  0x01
 #define SANTROLLER_DEVICE_REPORT_ID_INPUT_CMDDAT    0x02
@@ -198,8 +200,17 @@ static bool HIDAPI_DriverSantroller_InitDevice(SDL_HIDAPI_Device *device)
     ctx->device = device;
     device->context = ctx;
 
-    if (!RetrieveSDLFeatures(device)) {
-        return false;
+    Uint8 descriptor[1024];
+    int descriptor_len = SDL_hid_get_report_descriptor(device->dev, descriptor, sizeof(descriptor));
+    SDL_ReportDescriptor* parsed_descriptor = SDL_ParseReportDescriptor(descriptor, descriptor_len);
+    if (SDL_DescriptorHasUsage(parsed_descriptor, 0xFF00, SANTROLLER_DEVICE_FEATURES_USAGE)) {
+        // New revesion device, request features from the device
+        if (!RetrieveSDLFeatures(device)) {
+            return false;
+        }
+    } else {
+        // Older revision device, features are encoded into device version
+        SDL_log("test: %04x", device->version);
     }
 
     return HIDAPI_JoystickConnected(device, NULL);
