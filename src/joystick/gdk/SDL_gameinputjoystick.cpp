@@ -682,7 +682,6 @@ static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
 #undef CONVERT_TRIGGER
         }
     } else {
-
         bool *button_state = SDL_stack_alloc(bool, joystick->nbuttons);
         float *axis_state = SDL_stack_alloc(float, joystick->naxes);
         GameInputSwitchPosition *switch_state = SDL_stack_alloc(GameInputSwitchPosition, joystick->nhats);
