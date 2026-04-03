@@ -39,13 +39,6 @@
 //#define GAMEINPUT_SENSOR_SUPPORT
 #endif
 
-// Default value for SDL_HINT_JOYSTICK_GAMEINPUT_RAW
-#if GAMEINPUT_API_VERSION >= 3
-#define SDL_GAMEINPUT_RAW_DEFAULT true
-#else
-#define SDL_GAMEINPUT_RAW_DEFAULT false
-#endif
-
 enum
 {
     SDL_GAMEPAD_BUTTON_GAMEINPUT_SHARE = 11
@@ -98,8 +91,17 @@ extern "C"
     extern bool SDL_XINPUT_Enabled(void);
 }
 
+static bool GAMEINPUT_InternalIsGamepad(const GameInputDeviceInfo *info)
+{
+    if (info->supportedInput & GameInputKindGamepad) {
+        return true;
+    }
+    return false;
+}
+
 static Uint8 GAMEINPUT_GetDeviceRawType(const GameInputDeviceInfo *info)
 {
+#if GAMEINPUT_API_VERSION >= 3
     GameInputKind supportedInput = info->supportedInput;
     if (supportedInput & GameInputKindRawDeviceReport) {
         switch (info->vendorId) {
@@ -144,12 +146,12 @@ static Uint8 GAMEINPUT_GetDeviceRawType(const GameInputDeviceInfo *info)
                 break;
         }
     }
+#endif // GAMEINPUT_API_VERSION >= 3
     return SDL_GAMEINPUT_RAWTYPE_NONE;
 }
 static Uint8 GAMEINPUT_GetDeviceSubtype(const GameInputDeviceInfo *info)
 {
     GameInputKind supportedInput = info->supportedInput;
-#if GAMEINPUT_API_VERSION >= 3
     Uint8 rawType = GAMEINPUT_GetDeviceRawType(info);
     if (rawType == SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_GUITAR || rawType == SDL_GAMEINPUT_RAWTYPE_GUITAR_HERO_LIVE_GUITAR) {
         return SDL_JOYSTICK_TYPE_GUITAR;
@@ -157,7 +159,6 @@ static Uint8 GAMEINPUT_GetDeviceSubtype(const GameInputDeviceInfo *info)
     if (rawType == SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_DRUM_KIT) {
         return SDL_JOYSTICK_TYPE_DRUM_KIT;
     }
-#endif
     if (supportedInput & GameInputKindRacingWheel) {
         return SDL_JOYSTICK_TYPE_WHEEL;
     }
@@ -172,14 +173,6 @@ static Uint8 GAMEINPUT_GetDeviceSubtype(const GameInputDeviceInfo *info)
     }
     // Other device subtypes don't have their own GameInputKind enum entries.
     return 0;
-}
-
-static bool GAMEINPUT_InternalIsGamepad(const GameInputDeviceInfo *info)
-{
-    if (info->supportedInput & GameInputKindGamepad) {
-        return true;
-    }
-    return false;
 }
 
 #if GAMEINPUT_API_VERSION >= 1
@@ -395,11 +388,20 @@ static void CALLBACK GAMEINPUT_InternalJoystickDeviceCallback(
 static void GAMEINPUT_JoystickDetect(void);
 static void GAMEINPUT_JoystickQuit(void);
 
+static bool GAMEINPUT_IsRawGameInputEnabled(void)
+{
+#if GAMEINPUT_API_VERSION >= 3
+    return SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT_RAW, true);
+#else
+    return false;
+#endif
+}
+
 static bool GAMEINPUT_JoystickInit(void)
 {
     HRESULT hr;
 
-    if (!SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT) && !SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT_RAW, SDL_GAMEINPUT_RAW_DEFAULT)) {
+    if (!SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT) && !GAMEINPUT_IsRawGameInputEnabled()) {
         return true;
     }
 
@@ -417,11 +419,9 @@ static bool GAMEINPUT_JoystickInit(void)
     if (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT)) {
         kind |= GameInputKindController;
     }
-#if GAMEINPUT_API_VERSION >= 3
-    if (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT_RAW, SDL_GAMEINPUT_RAW_DEFAULT)) {
+    if (GAMEINPUT_IsRawGameInputEnabled()) {
         kind |= GameInputKindRawDeviceReport;
     }
-#endif
 
     hr = g_pGameInput->RegisterDeviceCallback(NULL,
                                            kind,
