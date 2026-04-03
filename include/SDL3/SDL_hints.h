@@ -1446,7 +1446,7 @@ extern "C" {
 
 /**
  * A variable controlling whether GameInput should be used for handling 
- * GIP devices that require raw report processing, but arent supported 
+ * GIP devices that require raw report processing, but aren't supported 
  * by HIDRAW, such as Xbox One Guitars.
  * 
  * Note that this is only supported with GameInput 3 or newer.
