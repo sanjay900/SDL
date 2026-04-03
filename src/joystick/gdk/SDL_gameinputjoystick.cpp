@@ -699,6 +699,183 @@ static bool GAMEINPUT_JoystickSetSensorsEnabled(SDL_Joystick *joystick, bool ena
     return true;
 }
 
+static void GAMEINPUT_GuitarUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp)
+{
+    IGameInputRawDeviceReport* rawState;
+    if (reading->GetRawReport(&rawState)) {
+        static WORD s_GuitarButtons[] = {
+            0x0010,  // SDL_GAMEPAD_BUTTON_SOUTH
+            0x0020,  // SDL_GAMEPAD_BUTTON_EAST
+            0x0040,  // SDL_GAMEPAD_BUTTON_WEST
+            0x0080,  // SDL_GAMEPAD_BUTTON_NORTH
+            0x0008,  // SDL_GAMEPAD_BUTTON_BACK
+            0,       // The guide button is not available
+            0x0004,  // SDL_GAMEPAD_BUTTON_START
+            0,       // right joystick click unavailable
+            0x4000,  // SDL_GAMEPAD_BUTTON_RIGHT_STICK
+            0x1000,  // SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
+            0,       // right shoulder unavailable
+        };
+        Uint8 btnidx = 0, hat = 0;
+        uint8_t rawData[40];
+        SDL_memset(rawData, 0, sizeof(rawData));
+        size_t len = rawState->GetRawData(sizeof(rawData), rawData);
+        uint16_t buttons = rawData[0] | rawData[1] << 8;
+        if (len >= 10) {
+            for (btnidx = 0; btnidx < SDL_arraysize(s_GuitarButtons); ++btnidx) {
+                WORD button_mask = s_GuitarButtons[btnidx];
+                if (!button_mask) {
+                    continue;
+                }
+                bool down = ((buttons & button_mask) != 0);
+                SDL_SendJoystickButton(timestamp, joystick, btnidx, down);
+            }
+            if (buttons & 0x0100) {
+                hat |= SDL_HAT_UP;
+            }
+            if (buttons & 0x0200) {
+                hat |= SDL_HAT_DOWN;
+            }
+            if (buttons & 0x0400) {
+                hat |= SDL_HAT_LEFT;
+            }
+            if (buttons & 0x0800) {
+                hat |= SDL_HAT_RIGHT;
+            }
+            SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, (rawData[3] * 257) - 32768);
+            // PS3 RB guitars had tilt on right shoulder
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, rawData[2] >= 0xD0);
+            // PS3 RB guitars send L2 when using solo buttons
+            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, (rawData[6]) ? 32767 : -32768);
+            // Align pickup selector mappings with PS3 instruments
+            static const Sint16 effects_mappings[] = {-26880, -13568, -1792, 11008, 24576};
+            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, effects_mappings[rawData[4] >> 4]);
+        }
+    }
+}
+
+static void GAMEINPUT_GamepadUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp) {
+    GameInputGamepadState state;
+    static WORD s_XInputButtons[] = {
+        GameInputGamepadA,               // SDL_GAMEPAD_BUTTON_SOUTH
+        GameInputGamepadB,               // SDL_GAMEPAD_BUTTON_EAST
+        GameInputGamepadX,               // SDL_GAMEPAD_BUTTON_WEST
+        GameInputGamepadY,               // SDL_GAMEPAD_BUTTON_NORTH
+        GameInputGamepadView,            // SDL_GAMEPAD_BUTTON_BACK
+        0,                               // The guide button is not available
+        GameInputGamepadMenu,            // SDL_GAMEPAD_BUTTON_START
+        GameInputGamepadLeftThumbstick,  // SDL_GAMEPAD_BUTTON_LEFT_STICK
+        GameInputGamepadRightThumbstick, // SDL_GAMEPAD_BUTTON_RIGHT_STICK
+        GameInputGamepadLeftShoulder,    // SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
+        GameInputGamepadRightShoulder,   // SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER
+    };
+    Uint8 btnidx = 0, hat = 0;
+
+    if (reading->GetGamepadState(&state)) {
+        for (btnidx = 0; btnidx < SDL_arraysize(s_XInputButtons); ++btnidx) {
+            WORD button_mask = s_XInputButtons[btnidx];
+            if (!button_mask) {
+                continue;
+            }
+            bool down = ((state.buttons & button_mask) != 0);
+            SDL_SendJoystickButton(timestamp, joystick, btnidx, down);
+        }
+
+        if (state.buttons & GameInputGamepadDPadUp) {
+            hat |= SDL_HAT_UP;
+        }
+        if (state.buttons & GameInputGamepadDPadDown) {
+            hat |= SDL_HAT_DOWN;
+        }
+        if (state.buttons & GameInputGamepadDPadLeft) {
+            hat |= SDL_HAT_LEFT;
+        }
+        if (state.buttons & GameInputGamepadDPadRight) {
+            hat |= SDL_HAT_RIGHT;
+        }
+        SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+
+#define CONVERT_AXIS(v) (Sint16)(((v) < 0.0f) ? ((v)*32768.0f) : ((v)*32767.0f))
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTX, CONVERT_AXIS(state.leftThumbstickX));
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTY, CONVERT_AXIS(-state.leftThumbstickY));
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, CONVERT_AXIS(state.rightThumbstickX));
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, CONVERT_AXIS(-state.rightThumbstickY));
+#undef CONVERT_AXIS
+#define CONVERT_TRIGGER(v) (Sint16)((v)*65535.0f - 32768.0f)
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, CONVERT_TRIGGER(state.leftTrigger));
+        SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, CONVERT_TRIGGER(state.rightTrigger));
+#undef CONVERT_TRIGGER
+    }
+}
+
+static void GAMEINPUT_ControllerUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp)
+{
+    bool *button_state = SDL_stack_alloc(bool, joystick->nbuttons);
+    float *axis_state = SDL_stack_alloc(float, joystick->naxes);
+    GameInputSwitchPosition *switch_state = SDL_stack_alloc(GameInputSwitchPosition, joystick->nhats);
+
+    if (button_state) {
+        uint32_t i;
+        uint32_t button_count = reading->GetControllerButtonState(joystick->nbuttons, button_state);
+        for (i = 0; i < button_count; ++i) {
+            SDL_SendJoystickButton(timestamp, joystick, (Uint8)i, button_state[i]);
+        }
+        SDL_stack_free(button_state);
+    }
+
+#define CONVERT_AXIS(v) (Sint16)((v)*65535.0f - 32768.0f)
+    if (axis_state) {
+        uint32_t i;
+        uint32_t axis_count = reading->GetControllerAxisState(joystick->naxes, axis_state);
+        for (i = 0; i < axis_count; ++i) {
+            SDL_SendJoystickAxis(timestamp, joystick, (Uint8)i, CONVERT_AXIS(axis_state[i]));
+        }
+        SDL_stack_free(axis_state);
+    }
+#undef CONVERT_AXIS
+
+    if (switch_state) {
+        uint32_t i;
+        uint32_t switch_count = reading->GetControllerSwitchState(joystick->nhats, switch_state);
+        for (i = 0; i < switch_count; ++i) {
+            Uint8 hat;
+            switch (switch_state[i]) {
+            case GameInputSwitchUp:
+                hat = SDL_HAT_UP;
+                break;
+            case GameInputSwitchUpRight:
+                hat = SDL_HAT_UP | SDL_HAT_RIGHT;
+                break;
+            case GameInputSwitchRight:
+                hat = SDL_HAT_RIGHT;
+                break;
+            case GameInputSwitchDownRight:
+                hat = SDL_HAT_DOWN | SDL_HAT_RIGHT;
+                break;
+            case GameInputSwitchDown:
+                hat = SDL_HAT_DOWN;
+                break;
+            case GameInputSwitchDownLeft:
+                hat = SDL_HAT_DOWN | SDL_HAT_LEFT;
+                break;
+            case GameInputSwitchLeft:
+                hat = SDL_HAT_LEFT;
+                break;
+            case GameInputSwitchUpLeft:
+                hat = SDL_HAT_UP | SDL_HAT_LEFT;
+                break;
+            case GameInputSwitchCenter:
+            default:
+                hat = SDL_HAT_CENTERED;
+                break;
+            }
+            SDL_SendJoystickHat(timestamp, joystick, (Uint8)i, hat);
+        }
+        SDL_stack_free(switch_state);
+    }
+}
+
 static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
 {
     GAMEINPUT_InternalJoystickHwdata *hwdata = joystick->hwdata;
@@ -707,8 +884,6 @@ static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
     const GameInputDeviceInfo *info = hwdata->devref->info;
     IGameInputReading *reading = NULL;
     Uint64 timestamp;
-    GameInputGamepadState state;
-    IGameInputRawDeviceReport* rawState;
     HRESULT hr;
 
     hr = g_pGameInput->GetCurrentReading(info->supportedInput, device, &reading);
@@ -719,172 +894,11 @@ static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
 
     timestamp = SDL_US_TO_NS(reading->GetTimestamp() + g_GameInputTimestampOffset);
     if (internal_device->raw_type == SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_GUITAR) {
-        if (reading->GetRawReport(&rawState)) {
-            static WORD s_GuitarButtons[] = {
-                0x0010,  // SDL_GAMEPAD_BUTTON_SOUTH
-                0x0020,  // SDL_GAMEPAD_BUTTON_EAST
-                0x0040,  // SDL_GAMEPAD_BUTTON_WEST
-                0x0080,  // SDL_GAMEPAD_BUTTON_NORTH
-                0x0008,  // SDL_GAMEPAD_BUTTON_BACK
-                0,       // The guide button is not available
-                0x0004,  // SDL_GAMEPAD_BUTTON_START
-                0,       // right joystick click unavailable
-                0x4000,  // SDL_GAMEPAD_BUTTON_RIGHT_STICK
-                0x1000,  // SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
-                0,       // right shoulder unavailable
-            };
-            Uint8 btnidx = 0, hat = 0;
-            uint8_t rawData[40];
-            SDL_memset(rawData, 0, sizeof(rawData));
-            size_t len = rawState->GetRawData(sizeof(rawData), rawData);
-            uint16_t buttons = rawData[0] | rawData[1] << 8;
-            if (len >= 10) {
-                for (btnidx = 0; btnidx < SDL_arraysize(s_GuitarButtons); ++btnidx) {
-                    WORD button_mask = s_GuitarButtons[btnidx];
-                    if (!button_mask) {
-                        continue;
-                    }
-                    bool down = ((buttons & button_mask) != 0);
-                    SDL_SendJoystickButton(timestamp, joystick, btnidx, down);
-                }
-                if (buttons & 0x0100) {
-                    hat |= SDL_HAT_UP;
-                }
-                if (buttons & 0x0200) {
-                    hat |= SDL_HAT_DOWN;
-                }
-                if (buttons & 0x0400) {
-                    hat |= SDL_HAT_LEFT;
-                }
-                if (buttons & 0x0800) {
-                    hat |= SDL_HAT_RIGHT;
-                }
-                SDL_SendJoystickHat(timestamp, joystick, 0, hat);
-                SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, (rawData[3] * 257) - 32768);
-                // PS3 RB guitars had tilt on right shoulder
-                SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, rawData[2] >= 0xD0);
-                // PS3 RB guitars send L2 when using solo buttons
-                SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, (rawData[6]) ? 32767 : -32768);
-                // Align pickup selector mappings with PS3 instruments
-                static const Sint16 effects_mappings[] = {-26880, -13568, -1792, 11008, 24576};
-                SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, effects_mappings[rawData[4] >> 4]);
-            }
-        }
+        GAMEINPUT_GuitarUpdate(joystick, reading, timestamp);
     } else if (GAMEINPUT_InternalIsGamepad(info)) {
-        static WORD s_XInputButtons[] = {
-            GameInputGamepadA,               // SDL_GAMEPAD_BUTTON_SOUTH
-            GameInputGamepadB,               // SDL_GAMEPAD_BUTTON_EAST
-            GameInputGamepadX,               // SDL_GAMEPAD_BUTTON_WEST
-            GameInputGamepadY,               // SDL_GAMEPAD_BUTTON_NORTH
-            GameInputGamepadView,            // SDL_GAMEPAD_BUTTON_BACK
-            0,                               // The guide button is not available
-            GameInputGamepadMenu,            // SDL_GAMEPAD_BUTTON_START
-            GameInputGamepadLeftThumbstick,  // SDL_GAMEPAD_BUTTON_LEFT_STICK
-            GameInputGamepadRightThumbstick, // SDL_GAMEPAD_BUTTON_RIGHT_STICK
-            GameInputGamepadLeftShoulder,    // SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
-            GameInputGamepadRightShoulder,   // SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER
-        };
-        Uint8 btnidx = 0, hat = 0;
-
-        if (reading->GetGamepadState(&state)) {
-            for (btnidx = 0; btnidx < SDL_arraysize(s_XInputButtons); ++btnidx) {
-                WORD button_mask = s_XInputButtons[btnidx];
-                if (!button_mask) {
-                    continue;
-                }
-                bool down = ((state.buttons & button_mask) != 0);
-                SDL_SendJoystickButton(timestamp, joystick, btnidx, down);
-            }
-
-            if (state.buttons & GameInputGamepadDPadUp) {
-                hat |= SDL_HAT_UP;
-            }
-            if (state.buttons & GameInputGamepadDPadDown) {
-                hat |= SDL_HAT_DOWN;
-            }
-            if (state.buttons & GameInputGamepadDPadLeft) {
-                hat |= SDL_HAT_LEFT;
-            }
-            if (state.buttons & GameInputGamepadDPadRight) {
-                hat |= SDL_HAT_RIGHT;
-            }
-            SDL_SendJoystickHat(timestamp, joystick, 0, hat);
-
-#define CONVERT_AXIS(v) (Sint16)(((v) < 0.0f) ? ((v)*32768.0f) : ((v)*32767.0f))
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTX, CONVERT_AXIS(state.leftThumbstickX));
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTY, CONVERT_AXIS(-state.leftThumbstickY));
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, CONVERT_AXIS(state.rightThumbstickX));
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, CONVERT_AXIS(-state.rightThumbstickY));
-#undef CONVERT_AXIS
-#define CONVERT_TRIGGER(v) (Sint16)((v)*65535.0f - 32768.0f)
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, CONVERT_TRIGGER(state.leftTrigger));
-            SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, CONVERT_TRIGGER(state.rightTrigger));
-#undef CONVERT_TRIGGER
-        }
+        GAMEINPUT_GamepadUpdate(joystick, reading, timestamp);
     } else {
-        bool *button_state = SDL_stack_alloc(bool, joystick->nbuttons);
-        float *axis_state = SDL_stack_alloc(float, joystick->naxes);
-        GameInputSwitchPosition *switch_state = SDL_stack_alloc(GameInputSwitchPosition, joystick->nhats);
-
-        if (button_state) {
-            uint32_t i;
-            uint32_t button_count = reading->GetControllerButtonState(joystick->nbuttons, button_state);
-            for (i = 0; i < button_count; ++i) {
-                SDL_SendJoystickButton(timestamp, joystick, (Uint8)i, button_state[i]);
-            }
-            SDL_stack_free(button_state);
-        }
-
-#define CONVERT_AXIS(v) (Sint16)((v)*65535.0f - 32768.0f)
-        if (axis_state) {
-            uint32_t i;
-            uint32_t axis_count = reading->GetControllerAxisState(joystick->naxes, axis_state);
-            for (i = 0; i < axis_count; ++i) {
-                SDL_SendJoystickAxis(timestamp, joystick, (Uint8)i, CONVERT_AXIS(axis_state[i]));
-            }
-            SDL_stack_free(axis_state);
-        }
-#undef CONVERT_AXIS
-
-        if (switch_state) {
-            uint32_t i;
-            uint32_t switch_count = reading->GetControllerSwitchState(joystick->nhats, switch_state);
-            for (i = 0; i < switch_count; ++i) {
-                Uint8 hat;
-                switch (switch_state[i]) {
-                case GameInputSwitchUp:
-                    hat = SDL_HAT_UP;
-                    break;
-                case GameInputSwitchUpRight:
-                    hat = SDL_HAT_UP | SDL_HAT_RIGHT;
-                    break;
-                case GameInputSwitchRight:
-                    hat = SDL_HAT_RIGHT;
-                    break;
-                case GameInputSwitchDownRight:
-                    hat = SDL_HAT_DOWN | SDL_HAT_RIGHT;
-                    break;
-                case GameInputSwitchDown:
-                    hat = SDL_HAT_DOWN;
-                    break;
-                case GameInputSwitchDownLeft:
-                    hat = SDL_HAT_DOWN | SDL_HAT_LEFT;
-                    break;
-                case GameInputSwitchLeft:
-                    hat = SDL_HAT_LEFT;
-                    break;
-                case GameInputSwitchUpLeft:
-                    hat = SDL_HAT_UP | SDL_HAT_LEFT;
-                    break;
-                case GameInputSwitchCenter:
-                default:
-                    hat = SDL_HAT_CENTERED;
-                    break;
-                }
-                SDL_SendJoystickHat(timestamp, joystick, (Uint8)i, hat);
-            }
-            SDL_stack_free(switch_state);
-        }
+        GAMEINPUT_ControllerUpdate(joystick, reading, timestamp);
     }
 
 #ifdef GAMEINPUT_SENSOR_SUPPORT
