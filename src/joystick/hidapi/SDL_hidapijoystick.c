@@ -21,7 +21,6 @@
 #include "SDL_internal.h"
 
 #ifdef SDL_JOYSTICK_HIDAPI
-
 #include "../SDL_sysjoystick.h"
 #include "SDL_hidapijoystick_c.h"
 #include "SDL_hidapi_rumble.h"

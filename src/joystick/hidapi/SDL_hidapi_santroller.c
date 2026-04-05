@@ -32,11 +32,6 @@
 
 #ifdef SDL_JOYSTICK_HIDAPI_SANTROLLER
 
-/*****************************************************************************************************/
-// This protocol is documented at:
-// https://docs.handheldlegend.com/s/sinput
-/*****************************************************************************************************/
-
 // Define this if you want to log all packets from the controller
 #if 0
 #define DEBUG_SANTROLLER_PROTOCOL
@@ -46,15 +41,41 @@
 #define DEBUG_SANTROLLER_INIT
 #endif
 
+enum {
+  SDL_SANTROLLER_SUB_TYPE_GAMEPAD = 1,
+  SDL_SANTROLLER_SUB_TYPE_DANCEPAD = 2,
+  SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR = 3,
+  SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR = 4,
+  SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS = 5,
+  SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS = 6,
+  SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR = 7,
+  SDL_SANTROLLER_SUB_TYPE_DJ_HERO_TURNTABLE = 8,
+  SDL_SANTROLLER_SUB_TYPE_STAGE_KIT = 9,
+  SDL_SANTROLLER_SUB_TYPE_DISNEY_INFINITY = 10,
+  SDL_SANTROLLER_SUB_TYPE_SKYLANDERS = 11,
+  SDL_SANTROLLER_SUB_TYPE_LEGO_DIMENSIONS = 12,
+  SDL_SANTROLLER_SUB_TYPE_PROJECT_DIVA = 13,
+  SDL_SANTROLLER_SUB_TYPE_GUITAR_FREAKS = 14,
+  SDL_SANTROLLER_SUB_TYPE_WHEEL = 15,
+  SDL_SANTROLLER_SUB_TYPE_PRO_KEYS = 16,
+  SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG = 17,
+  SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE = 18,
+  SDL_SANTROLLER_SUB_TYPE_KEYBOARD_MOUSE = 19,
+  SDL_SANTROLLER_SUB_TYPE_FIGHT_STICK = 20,
+  SDL_SANTROLLER_SUB_TYPE_FLIGHT_STICK = 21,
+  SDL_SANTROLLER_SUB_TYPE_POP_N_MUSIC = 22,
+  SDL_SANTROLLER_SUB_TYPE_DJ_MAX = 23,
+  SDL_SANTROLLER_SUB_TYPE_TAIKO = 24,
+  SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM = 25,
+  SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR = 26,
+  SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR = 27,
+};
 
-#define SANTROLLER_DEVICE_REPORT_SIZE           64 // Size of input reports (And CMD Input reports)
-#define SANTROLLER_DEVICE_REPORT_COMMAND_SIZE   48 // Size of command OUTPUT reports
-#define SANTROLLER_DEVICE_FEATURES_REPORT_SIZE  2  // Size of features report
-#define SANTROLLER_DEVICE_FEATURES_USAGE        0x2021  // Usage page for features report
+#define SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE  3  // Size of features report
+#define SANTROLLER_DEVICE_FEATURES_SET_REPORT_SIZE  2  // Size of features report
+#define SANTROLLER_DEVICE_FEATURES_USAGE        0x2882 // Usage page for features report
 
 #define SANTROLLER_DEVICE_REPORT_ID_JOYSTICK_INPUT  0x01
-#define SANTROLLER_DEVICE_REPORT_ID_INPUT_CMDDAT    0x02
-#define SANTROLLER_DEVICE_REPORT_ID_OUTPUT_CMDDAT   0x03
 #define SANTROLLER_DEVICE_REPORT_ID_FEATURES    0x10
 
 typedef struct
@@ -65,101 +86,103 @@ typedef struct
     bool sensors_enabled;
 
     Uint8 player_idx;
+    Uint8 sub_type;
 
     bool player_leds_supported;
     bool joystick_rgb_supported;
+    bool instrument_led_supported;
     bool rumble_supported;
-    bool accelerometer_supported;
-    bool gyroscope_supported;
-    bool left_analog_stick_supported;
-    bool right_analog_stick_supported;
-    bool left_analog_trigger_supported;
-    bool right_analog_trigger_supported;
-    bool dpad_supported;
-    bool touchpad_supported;
-    bool is_handheld;
+    bool dpad_as_buttons;
+    bool new_format;
+    int buttons_count;
+    int axes_count;
 
-    Uint8 touchpad_count;        // 2 touchpads maximum
-    Uint8 touchpad_finger_count; // 2 fingers for one touchpad, or 1 per touchpad (2 max)
-
-    Uint16 polling_rate_us;
-    Uint8 sub_product;    // Subtype of the device, 0 in most cases
-
-    Uint16 accelRange; // Example would be 2,4,8,16 +/- (g-force)
-    Uint16 gyroRange;  // Example would be 1000,2000,4000 +/- (degrees per second)
-
-    float accelScale; // Scale factor for accelerometer values
-    float gyroScale;  // Scale factor for gyroscope values
     Uint8 last_state[USB_PACKET_LENGTH];
-
-    Uint8 axes_count;
-    Uint8 buttons_count;
-    Uint8 usage_masks[4];
-
-    Uint32 last_imu_timestamp_us;
-
-    Uint64 imu_timestamp_ns; // Nanoseconds. We accumulate with received deltas
 } SDL_DriverSantroller_Context;
 
-// Converts raw int16_t gyro scale setting
-static inline float CalculateGyroScale(uint16_t dps_range)
-{
-    return SDL_PI_F / 180.0f / (32768.0f / (float)dps_range);
-}
-
-// Converts raw int16_t accel scale setting
-static inline float CalculateAccelScale(uint16_t g_range)
-{
-    return SDL_STANDARD_GRAVITY / (32768.0f / (float)g_range);
-}
 
 static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
 {
+    SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
     int written = 0;
 
-    // Attempt to send the SDL features get command.
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        const Uint8 featuresGetCommand[SANTROLLER_DEVICE_FEATURES_REPORT_SIZE] = { SANTROLLER_DEVICE_REPORT_ID_FEATURES, 0 };
-        // This write will occasionally return -1, so ignore failure here and try again
-        written = SDL_hid_write(device->dev, featuresGetCommand, sizeof(featuresGetCommand));
-
-        if (written == SANTROLLER_DEVICE_FEATURES_REPORT_SIZE) {
-            break;
+    // Originally, santroller devices only supported enumerating as a single device at a time
+    // and encoded all features into the device version. 
+    
+    // Santroller V2 added support for mulitple sumultaneous device, so since bcdDevice would
+    // be the same across multiple devices, they moved features to a HID report instead. 
+    // Check for presence of that report to determine which device we are communicating with, 
+    // and if it's a V2 device, query features from the device instead of relying on version encoding.
+    Uint8 descriptor[1024];
+    int descriptor_len = SDL_hid_get_report_descriptor(device->dev, descriptor, sizeof(descriptor));
+    SDL_ReportDescriptor* parsed_descriptor = SDL_ParseReportDescriptor(descriptor, descriptor_len);
+    if (SDL_DescriptorHasUsage(parsed_descriptor, 0xFF00, SANTROLLER_DEVICE_FEATURES_USAGE)) {
+        // New revesion device, request features from the device
+        // Attempt to send the SDL features get command.
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            const Uint8 featuresGetCommand[SANTROLLER_DEVICE_FEATURES_SET_REPORT_SIZE] = { SANTROLLER_DEVICE_REPORT_ID_FEATURES, 0 };
+            // This write will occasionally return -1, so ignore failure here and try again
+            written = SDL_hid_write(device->dev, featuresGetCommand, sizeof(featuresGetCommand));
+            if (written == SANTROLLER_DEVICE_FEATURES_SET_REPORT_SIZE) {
+                break;
+            }
         }
-    }
 
-    if (written < 2) {
-        SDL_SetError("Santroller device SDL Features GET command could not write");
-        return false;
-    }
-
-    int read = 0;
-
-    // Read the reply
-    for (int i = 0; i < 100; ++i) {
-        SDL_Delay(1);
-
-        Uint8 data[SANTROLLER_DEVICE_FEATURES_REPORT_SIZE];
-        read = SDL_hid_read_timeout(device->dev, data, sizeof(data), 0);
-        if (read < 0) {
-            SDL_SetError("Santroller device SDL Features GET command could not read");
+        if (written < 2) {
+            SDL_SetError("Santroller device SDL Features GET command could not write");
             return false;
         }
-        if (read == 0) {
-            continue;
-        }
 
-#ifdef DEBUG_SANTROLLER_PROTOCOL
-        HIDAPI_DumpPacket("Santroller packet: size = %d", data, read);
-#endif
+        int read = 0;
 
-        if ((read == SANTROLLER_DEVICE_FEATURES_REPORT_SIZE) && (data[0] == SANTROLLER_DEVICE_REPORT_ID_FEATURES)) {
-            SDL_Log("Received Santroller SDL Features response %d", data[1]);
-#if defined(DEBUG_SANTROLLER_INIT)
-            SDL_Log("Received Santroller SDL Features command response");
-#endif
-            return true;
+        // Read the reply
+        for (int i = 0; i < 100; ++i) {
+            SDL_Delay(1);
+
+            Uint8 data[SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE];
+            read = SDL_hid_read_timeout(device->dev, data, sizeof(data), 0);
+            if (read < 0) {
+                SDL_SetError("Santroller device SDL Features GET command could not read");
+                return false;
+            }
+            if (read == 0) {
+                continue;
+            }
+
+    #ifdef DEBUG_SANTROLLER_PROTOCOL
+            HIDAPI_DumpPacket("Santroller packet: size = %d", data, read);
+    #endif
+
+            if ((read == SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE) && (data[0] == SANTROLLER_DEVICE_REPORT_ID_FEATURES)) {
+                ctx->sub_type = data[1];
+                ctx->player_leds_supported = (data[2] & 0x01) != 0;
+                ctx->joystick_rgb_supported = (data[2] & 0x02) != 0;
+                ctx->instrument_led_supported = (data[2] & 0x04) != 0;
+                ctx->rumble_supported = (data[2] & 0x08) != 0;
+                ctx->dpad_as_buttons = ctx->sub_type == SDL_SANTROLLER_SUB_TYPE_DANCEPAD; // Only dance pads has dpad as buttons
+                ctx->new_format = true;
+                ctx->buttons_count = ctx->dpad_as_buttons ? 16 : 12; // Dance pads have 4 additional buttons for the dpad directions
+                ctx->axes_count = 6;
+    #if defined(DEBUG_SANTROLLER_INIT)
+                SDL_Log("Received Santroller SDL Features response: %d %d", data[1], data[2]);
+    #endif
+                return true;
+            }
         }
+    } else {
+        // Older revision device, sub_type is encoded into device version
+        ctx->sub_type = (device->version >> 8) & 0xFF;
+        // Older devices don't expose capabilities, but will ignore anything 
+        // they don't support, so just assume everything is supported
+        ctx->player_leds_supported = true;
+        ctx->joystick_rgb_supported = true;
+        ctx->instrument_led_supported = true;
+        ctx->rumble_supported = true;
+        ctx->dpad_as_buttons = false;
+        ctx->new_format = false;
+        ctx->buttons_count = 12; // Dance pads have 4 additional buttons for the dpad directions
+        ctx->axes_count = 6;
+        return true;
     }
 
     return false;
@@ -200,17 +223,33 @@ static bool HIDAPI_DriverSantroller_InitDevice(SDL_HIDAPI_Device *device)
     ctx->device = device;
     device->context = ctx;
 
-    Uint8 descriptor[1024];
-    int descriptor_len = SDL_hid_get_report_descriptor(device->dev, descriptor, sizeof(descriptor));
-    SDL_ReportDescriptor* parsed_descriptor = SDL_ParseReportDescriptor(descriptor, descriptor_len);
-    if (SDL_DescriptorHasUsage(parsed_descriptor, 0xFF00, SANTROLLER_DEVICE_FEATURES_USAGE)) {
-        // New revesion device, request features from the device
-        if (!RetrieveSDLFeatures(device)) {
-            return false;
-        }
-    } else {
-        // Older revision device, features are encoded into device version
-        SDL_log("test: %04x", device->version);
+    if (!RetrieveSDLFeatures(device)) {
+        return false;
+    }
+
+    switch (ctx->sub_type) {
+        case SDL_SANTROLLER_SUB_TYPE_GAMEPAD:
+            device->joystick_type = SDL_JOYSTICK_TYPE_GAMEPAD;
+            break;
+        case SDL_SANTROLLER_SUB_TYPE_DANCEPAD:
+            device->joystick_type = SDL_JOYSTICK_TYPE_DANCE_PAD;
+            break;
+        case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR:
+        case SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR:
+        case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR:
+        case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR:
+        case SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR:
+        case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG:
+        case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE:
+            device->joystick_type = SDL_JOYSTICK_TYPE_GUITAR;
+            break;
+        case SDL_SANTROLLER_SUB_TYPE_TAIKO:
+        case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS:
+        case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS:
+        case SDL_SANTROLLER_SUB_TYPE_STAGE_KIT:
+        case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM:
+            device->joystick_type = SDL_JOYSTICK_TYPE_DRUM_KIT;
+            break;
     }
 
     return HIDAPI_JoystickConnected(device, NULL);
@@ -224,7 +263,6 @@ static int HIDAPI_DriverSantroller_GetDevicePlayerIndex(SDL_HIDAPI_Device *devic
 static void HIDAPI_DriverSantroller_SetDevicePlayerIndex(SDL_HIDAPI_Device *device, SDL_JoystickID instance_id, int player_index)
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
-
 }
 
 
@@ -244,17 +282,7 @@ static bool HIDAPI_DriverSantroller_OpenJoystick(SDL_HIDAPI_Device *device, SDL_
 
     joystick->naxes = ctx->axes_count;
 
-    if (ctx->dpad_supported) {
-        joystick->nhats = 1;
-    }
-
-    if (ctx->gyroscope_supported) {
-        SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_GYRO, 1000000.0f / ctx->polling_rate_us);
-    }
-
-    if (ctx->accelerometer_supported) {
-        SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_ACCEL, 1000000.0f / ctx->polling_rate_us);
-    }
+    joystick->nhats = 1;
 
     return true;
 }
@@ -293,17 +321,17 @@ static Uint32 HIDAPI_DriverSantroller_GetJoystickCapabilities(SDL_HIDAPI_Device 
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
 
     Uint32 caps = 0;
-    // if (ctx->rumble_supported) {
-    //     caps |= SDL_JOYSTICK_CAP_RUMBLE;
-    // }
+    if (ctx->rumble_supported) {
+        caps |= SDL_JOYSTICK_CAP_RUMBLE;
+    }
 
-    // if (ctx->player_leds_supported) {
-    //     caps |= SDL_JOYSTICK_CAP_PLAYER_LED;
-    // }
+    if (ctx->player_leds_supported) {
+        caps |= SDL_JOYSTICK_CAP_PLAYER_LED;
+    }
 
-    // if (ctx->joystick_rgb_supported) {
-    //     caps |= SDL_JOYSTICK_CAP_RGB_LED;
-    // }
+    if (ctx->joystick_rgb_supported) {
+        caps |= SDL_JOYSTICK_CAP_RGB_LED;
+    }
 
     return caps;
 }
@@ -342,252 +370,336 @@ static bool HIDAPI_DriverSantroller_SetJoystickSensorsEnabled(SDL_HIDAPI_Device 
     return SDL_Unsupported();
 }
 
-static void HIDAPI_DriverSantroller_HandleStatePacket(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+static void HIDAPI_DriverSantroller_HandleStatePacketNew(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
 {
-    // Sint16 axis = 0;
-    // Sint16 accel = 0;
-    // Sint16 gyro = 0;
-    // Uint64 timestamp = SDL_GetTicksNS();
-    // float imu_values[3] = { 0 };
-    // Uint8 output_idx = 0;
+    Sint16 axis;
+    Uint64 timestamp = SDL_GetTicksNS();
 
-    // // Process digital buttons according to the supplied
-    // // button mask to create a contiguous button input set
-    // for (Uint8 processes = 0; processes < 4; ++processes) {
+    if (ctx->last_state[2] != data[2]) {
+        Uint8 hat = 0;
+        if (ctx->dpad_as_buttons) {
+            if (data[2] & 0x01) {
+                hat |= SDL_HAT_UP;
+            }
+            if (data[2] & 0x02) {
+                hat |= SDL_HAT_DOWN;
+            }
+            if (data[2] & 0x04) {
+                hat |= SDL_HAT_LEFT;
+            }
+            if (data[2] & 0x08) {
+                hat |= SDL_HAT_RIGHT;
+            }
+        } else {
+            switch (data[2] & 0x0f) {
+            case 0:
+                hat = SDL_HAT_UP;
+                break;
+            case 1:
+                hat = SDL_HAT_RIGHTUP;
+                break;
+            case 2:
+                hat = SDL_HAT_RIGHT;
+                break;
+            case 3:
+                hat = SDL_HAT_RIGHTDOWN;
+                break;
+            case 4:
+                hat = SDL_HAT_DOWN;
+                break;
+            case 5:
+                hat = SDL_HAT_LEFTDOWN;
+                break;
+            case 6:
+                hat = SDL_HAT_LEFT;
+                break;
+            case 7:
+                hat = SDL_HAT_LEFTUP;
+                break;
+            default:
+                hat = SDL_HAT_CENTERED;
+                break;
+            }
+        }
+        SDL_SendJoystickHat(timestamp, joystick, 0, hat);
 
-    //     Uint8 button_idx = SANTROLLER_REPORT_IDX_BUTTONS_0 + processes;
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_START, ((data[2] & 0x10) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_BACK, ((data[2] & 0x20) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_STICK, ((data[2] & 0x40) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK, ((data[2] & 0x80) != 0));
+    }
 
-    //     for (Uint8 buttons = 0; buttons < 8; ++buttons) {
+    if (ctx->last_state[3] != data[3]) {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, ((data[3] & 0x01) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, ((data[3] & 0x02) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_GUIDE, ((data[3] & 0x04) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[3] & 0x10) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[3] & 0x20) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, ((data[3] & 0x40) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[3] & 0x80) != 0));
+    }
 
-    //         // If a button is enabled by our usage mask
-    //         const Uint8 mask = (0x01 << buttons);
-    //         if ((ctx->usage_masks[processes] & mask) != 0) {
+    axis = ((int)data[4] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, axis);
+    axis = ((int)data[5] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, axis);
+    axis = SDL_Swap16LE(*(Sint16 *)(&data[6]));
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTX, axis);
+    axis = SDL_Swap16LE(*(Sint16 *)(&data[8]));
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTY, axis);
+    axis = SDL_Swap16LE(*(Sint16 *)(&data[10]));
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, axis);
+    axis = SDL_Swap16LE(*(Sint16 *)(&data[12]));
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, axis);
 
-    //             bool down = (data[button_idx] & mask) != 0;
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
 
-    //             if ( (output_idx < SDL_GAMEPAD_BUTTON_COUNT) && (ctx->last_state[button_idx] != data[button_idx]) ) {
-    //                 SDL_SendJoystickButton(timestamp, joystick, output_idx, down);
-    //             }
+static void HIDAPI_DriverSantroller_HandleStatePacketOldGamepad(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    Sint16 axis;
+    Uint64 timestamp = SDL_GetTicksNS();
 
-    //             ++output_idx;
-    //         }
-    //     }
-    // }
+    if (ctx->last_state[3] != data[3]) {
+        Uint8 hat = 0;
+        switch (data[3] & 0x0f) {
+        case 0:
+            hat = SDL_HAT_UP;
+            break;
+        case 1:
+            hat = SDL_HAT_RIGHTUP;
+            break;
+        case 2:
+            hat = SDL_HAT_RIGHT;
+            break;
+        case 3:
+            hat = SDL_HAT_RIGHTDOWN;
+            break;
+        case 4:
+            hat = SDL_HAT_DOWN;
+            break;
+        case 5:
+            hat = SDL_HAT_LEFTDOWN;
+            break;
+        case 6:
+            hat = SDL_HAT_LEFT;
+            break;
+        case 7:
+            hat = SDL_HAT_LEFTUP;
+            break;
+        default:
+            hat = SDL_HAT_CENTERED;
+            break;
+        }
+        SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+    }
+    if (ctx->last_state[1] != data[1]) 
+    {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, ((data[1] & 0x01) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x02) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x04) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[1] & 0x08) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, ((data[1] & 0x10) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, ((data[1] & 0x20) != 0));
+    }
 
-    // if (ctx->dpad_supported) {
-    //     Uint8 hat = SDL_HAT_CENTERED;
+    if (ctx->last_state[2] != data[2]) {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_BACK, ((data[2] & 0x01) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_START, ((data[2] & 0x02) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_STICK, ((data[2] & 0x04) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK, ((data[2] & 0x08) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_GUIDE, ((data[2] & 0x10) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_MISC1, ((data[2] & 0x20) != 0));
+    }
 
-    //     if (data[SANTROLLER_REPORT_IDX_BUTTONS_0] & (1 << SANTROLLER_BUTTON_IDX_DPAD_UP)) {
-    //         hat |= SDL_HAT_UP;
-    //     }
-    //     if (data[SANTROLLER_REPORT_IDX_BUTTONS_0] & (1 << SANTROLLER_BUTTON_IDX_DPAD_DOWN)) {
-    //         hat |= SDL_HAT_DOWN;
-    //     }
-    //     if (data[SANTROLLER_REPORT_IDX_BUTTONS_0] & (1 << SANTROLLER_BUTTON_IDX_DPAD_LEFT)) {
-    //         hat |= SDL_HAT_LEFT;
-    //     }
-    //     if (data[SANTROLLER_REPORT_IDX_BUTTONS_0] & (1 << SANTROLLER_BUTTON_IDX_DPAD_RIGHT)) {
-    //         hat |= SDL_HAT_RIGHT;
-    //     }
-    //     SDL_SendJoystickHat(timestamp, joystick, 0, hat);
-    // }
+    axis = ((int)data[4] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTX, axis);
+    axis = ((int)data[5] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTY, axis);
+    axis = ((int)data[6] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, axis);
+    axis = ((int)data[7] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, axis);
+    axis = ((int)data[8] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, axis);
+    axis = ((int)data[9] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, axis);
 
-    // // Analog inputs map to a signed Sint16 range of -32768 to 32767 from the device.
-    // // Use an axis index because not all gamepads will have the same axis inputs.
-    // Uint8 axis_idx = 0;
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
 
-    // // Left Analog Stick
-    // axis = 0; // Reset axis value for joystick
-    // if (ctx->left_analog_stick_supported) {
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_LEFT_X);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    //     ++axis_idx;
+static void HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroGuitar(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    Sint16 axis;
+    Uint64 timestamp = SDL_GetTicksNS();
 
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_LEFT_Y);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    //     ++axis_idx;
-    // }
+    if (ctx->last_state[3] != data[3]) {
+        Uint8 hat = 0;
+        switch (data[3] & 0x0f) {
+        case 0:
+            hat = SDL_HAT_UP;
+            break;
+        case 1:
+            hat = SDL_HAT_RIGHTUP;
+            break;
+        case 2:
+            hat = SDL_HAT_RIGHT;
+            break;
+        case 3:
+            hat = SDL_HAT_RIGHTDOWN;
+            break;
+        case 4:
+            hat = SDL_HAT_DOWN;
+            break;
+        case 5:
+            hat = SDL_HAT_LEFTDOWN;
+            break;
+        case 6:
+            hat = SDL_HAT_LEFT;
+            break;
+        case 7:
+            hat = SDL_HAT_LEFTUP;
+            break;
+        default:
+            hat = SDL_HAT_CENTERED;
+            break;
+        }
+        SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+    }
+    if (ctx->last_state[1] != data[1]) 
+    {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x01) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x02) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[1] & 0x04) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, ((data[1] & 0x08) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, ((data[1] & 0x10) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, ((data[1] & 0x20) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_BACK, ((data[1] & 0x40) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_START, ((data[1] & 0x80) != 0));
+    }
 
-    // // Right Analog Stick
-    // axis = 0; // Reset axis value for joystick
-    // if (ctx->right_analog_stick_supported) {
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_RIGHT_X);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    //     ++axis_idx;
+    if (ctx->last_state[2] != data[2]) {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_GUIDE, ((data[2] & 0x01) != 0));
+    }
 
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_RIGHT_Y);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    //     ++axis_idx;
-    // }
+    axis = ((int)data[4] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, axis);
+    axis = ((int)data[5] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFTX, axis);
+    axis = ((int)data[6] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, axis);
+    axis = ((int)data[7] * 257) - 32768;
 
-    // // Left Analog Trigger
-    // axis = SDL_MIN_SINT16; // Reset axis value for trigger
-    // if (ctx->left_analog_trigger_supported) {
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_LEFT_TRIGGER);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    //     ++axis_idx;
-    // }
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
 
-    // // Right Analog Trigger
-    // axis = SDL_MIN_SINT16; // Reset axis value for trigger
-    // if (ctx->right_analog_trigger_supported) {
-    //     axis = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_RIGHT_TRIGGER);
-    //     SDL_SendJoystickAxis(timestamp, joystick, axis_idx, axis);
-    // }
+static void HIDAPI_DriverSantroller_HandleStatePacketOldRockBandGuitar(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    Sint16 axis;
+    Uint64 timestamp = SDL_GetTicksNS();
 
-    // // Battery/Power state handling
-    // if (ctx->last_state[SANTROLLER_REPORT_IDX_PLUG_STATUS]  != data[SANTROLLER_REPORT_IDX_PLUG_STATUS] ||
-    //     ctx->last_state[SANTROLLER_REPORT_IDX_CHARGE_LEVEL] != data[SANTROLLER_REPORT_IDX_CHARGE_LEVEL]) {
+    if (ctx->last_state[3] != data[3]) {
+        Uint8 hat = 0;
+        switch (data[3] & 0x0f) {
+        case 0:
+            hat = SDL_HAT_UP;
+            break;
+        case 1:
+            hat = SDL_HAT_RIGHTUP;
+            break;
+        case 2:
+            hat = SDL_HAT_RIGHT;
+            break;
+        case 3:
+            hat = SDL_HAT_RIGHTDOWN;
+            break;
+        case 4:
+            hat = SDL_HAT_DOWN;
+            break;
+        case 5:
+            hat = SDL_HAT_LEFTDOWN;
+            break;
+        case 6:
+            hat = SDL_HAT_LEFT;
+            break;
+        case 7:
+            hat = SDL_HAT_LEFTUP;
+            break;
+        default:
+            hat = SDL_HAT_CENTERED;
+            break;
+        }
+        SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+    }
+    if (ctx->last_state[1] != data[1] || ctx->last_state[2] != data[2]) 
+    {
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x01) != 0) || ((data[1] & 0x20) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x02) != 0) || ((data[1] & 0x40) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[1] & 0x04) != 0) || ((data[1] & 0x80) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, ((data[1] & 0x08) != 0) || ((data[2] & 0x01) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, ((data[1] & 0x10) != 0) || ((data[2] & 0x02) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_BACK, ((data[2] & 0x04) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_START, ((data[2] & 0x08) != 0));
+        SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_GUIDE, ((data[2] & 0x10) != 0));
+    }
 
-    //     SDL_PowerState state = SDL_POWERSTATE_UNKNOWN;
-    //     Uint8 status = data[SANTROLLER_REPORT_IDX_PLUG_STATUS];
-    //     int percent = data[SANTROLLER_REPORT_IDX_CHARGE_LEVEL];
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, (((data[1] & 0x20) != 0) || ((data[1] & 0x40) != 0) || ((data[1] & 0x80) != 0) || ((data[2] & 0x01) != 0) || ((data[2] & 0x02) != 0)) ? 255 : 0);
+    axis = ((int)data[4] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTX, axis);
+    axis = ((int)data[5] * 257) - 32768;
+    SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, axis);
 
-    //     percent = SDL_clamp(percent, 0, 100); // Ensure percent is within valid range
+    // Align with ps3 mappings
+    SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, data[6] > 0xD0);
 
-    //     switch (status) {
-    //     case 1:
-    //         state = SDL_POWERSTATE_NO_BATTERY;
-    //         percent = 0;
-    //         break;
-    //     case 2:
-    //         state = SDL_POWERSTATE_CHARGING;
-    //         break;
-    //     case 3:
-    //         state = SDL_POWERSTATE_CHARGED;
-    //         percent = 100;
-    //         break;
-    //     case 4:
-    //         state = SDL_POWERSTATE_ON_BATTERY;
-    //         break;
-    //     default:
-    //         break;
-    //     }
-
-    //     if (state != SDL_POWERSTATE_UNKNOWN) {
-    //         SDL_SendJoystickPowerInfo(joystick, state, percent);
-    //     }
-    // }
-
-    // // Extract the IMU timestamp delta (in microseconds)
-    // Uint32 imu_timestamp_us = EXTRACTUINT32(data, SANTROLLER_REPORT_IDX_IMU_TIMESTAMP);
-    // Uint32 imu_time_delta_us = 0;
-
-    // // Check if we should process IMU data and if sensors are enabled
-    // if (ctx->sensors_enabled) {
-
-    //     if (imu_timestamp_us >= ctx->last_imu_timestamp_us) {
-    //         imu_time_delta_us = (imu_timestamp_us - ctx->last_imu_timestamp_us);
-    //     } else {
-    //         // Handle rollover case
-    //         imu_time_delta_us = (UINT32_MAX - ctx->last_imu_timestamp_us) + imu_timestamp_us + 1;
-    //     }
-
-    //     // Convert delta to nanoseconds and update running timestamp
-    //     ctx->imu_timestamp_ns += (Uint64)imu_time_delta_us * 1000;
-
-    //     // Update last timestamp
-    //     ctx->last_imu_timestamp_us = imu_timestamp_us;
-
-    //     // Process Gyroscope
-    //     if (ctx->gyroscope_supported) {
-
-    //         gyro = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_GYRO_Y);
-    //         imu_values[2] = -(float)gyro * ctx->gyroScale; // Y-axis rotation
-
-    //         gyro = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_GYRO_Z);
-    //         imu_values[1] = (float)gyro * ctx->gyroScale; // Z-axis rotation
-
-    //         gyro = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_GYRO_X);
-    //         imu_values[0] = -(float)gyro * ctx->gyroScale; // X-axis rotation
-
-    //         SDL_SendJoystickSensor(timestamp, joystick, SDL_SENSOR_GYRO, ctx->imu_timestamp_ns, imu_values, 3);
-    //     }
-
-    //     // Process Accelerometer
-    //     if (ctx->accelerometer_supported) {
-
-    //         accel = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_ACCEL_Y);
-    //         imu_values[2] = -(float)accel * ctx->accelScale; // Y-axis acceleration
-
-    //         accel = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_ACCEL_Z);
-    //         imu_values[1] = (float)accel * ctx->accelScale; // Z-axis acceleration
-
-    //         accel = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_IMU_ACCEL_X);
-    //         imu_values[0] = -(float)accel * ctx->accelScale; // X-axis acceleration
-
-    //         SDL_SendJoystickSensor(timestamp, joystick, SDL_SENSOR_ACCEL, ctx->imu_timestamp_ns, imu_values, 3);
-    //     }
-    // }
-
-    // // Check if we should process touchpad
-    // if (ctx->touchpad_supported && ctx->touchpad_count > 0) {
-    //     Uint8 touchpad = 0;
-    //     Uint8 finger = 0;
-
-    //     Sint16 touch1X = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_TOUCH1_X);
-    //     Sint16 touch1Y = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_TOUCH1_Y);
-    //     Uint16 touch1P = EXTRACTUINT16(data, SANTROLLER_REPORT_IDX_TOUCH1_P);
-
-    //     Sint16 touch2X = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_TOUCH2_X);
-    //     Sint16 touch2Y = EXTRACTSINT16(data, SANTROLLER_REPORT_IDX_TOUCH2_Y);
-    //     Uint16 touch2P = EXTRACTUINT16(data, SANTROLLER_REPORT_IDX_TOUCH2_P);
-
-    //     SDL_SendJoystickTouchpad(timestamp, joystick, touchpad, finger,
-    //         touch1P > 0,
-    //         touch1X / 65536.0f + 0.5f,
-    //         touch1Y / 65536.0f + 0.5f,
-    //         touch1P / 32768.0f);
-
-    //     if (ctx->touchpad_count > 1) {
-    //         ++touchpad;
-    //     } else if (ctx->touchpad_finger_count > 1) {
-    //         ++finger;
-    //     }
-
-    //     if ((touchpad > 0) || (finger > 0)) {
-    //         SDL_SendJoystickTouchpad(timestamp, joystick, touchpad, finger,
-    //                                  touch2P > 0,
-    //                                  touch2X / 65536.0f + 0.5f,
-    //                                  touch2Y / 65536.0f + 0.5f,
-    //                                  touch2P / 32768.0f);
-    //     }
-    // }
-
-    // SDL_memcpy(ctx->last_state, data, SDL_min(size, sizeof(ctx->last_state)));
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
 }
 
 static bool HIDAPI_DriverSantroller_UpdateDevice(SDL_HIDAPI_Device *device)
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
     SDL_Joystick *joystick = NULL;
-//     Uint8 data[USB_PACKET_LENGTH];
-//     int size = 0;
+    Uint8 data[USB_PACKET_LENGTH];
+    int size = 0;
 
-//     if (device->num_joysticks > 0) {
-//         joystick = SDL_GetJoystickFromID(device->joysticks[0]);
-//     } else {
-//         return false;
-//     }
+    if (device->num_joysticks > 0) {
+        joystick = SDL_GetJoystickFromID(device->joysticks[0]);
+    } else {
+        return false;
+    }
 
-//     while ((size = SDL_hid_read_timeout(device->dev, data, sizeof(data), 0)) > 0) {
-// #ifdef DEBUG_SANTROLLER_PROTOCOL
-//         HIDAPI_DumpPacket("Santroller packet: size = %d", data, size);
-// #endif
-//         if (!joystick) {
-//             continue;
-//         }
+    while ((size = SDL_hid_read_timeout(device->dev, data, sizeof(data), 0)) > 0) {
+#ifdef DEBUG_SANTROLLER_PROTOCOL
+        HIDAPI_DumpPacket("Santroller packet: size = %d", data, size);
+#endif
+        if (!joystick) {
+            continue;
+        }
+        if (data[0] != SANTROLLER_DEVICE_REPORT_ID_JOYSTICK_INPUT) {
+            continue;
+        }
+        if (ctx->new_format) {
+            HIDAPI_DriverSantroller_HandleStatePacketNew(joystick, ctx, data, size);
+        } else {
+            switch (ctx->sub_type) {
+            case SDL_SANTROLLER_SUB_TYPE_GAMEPAD:
+                HIDAPI_DriverSantroller_HandleStatePacketOldGamepad(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR:
+                HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroGuitar(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR:
+                HIDAPI_DriverSantroller_HandleStatePacketOldRockBandGuitar(joystick, ctx, data, size);
+                break;
+            }
+        }
+    }
 
-//         if (data[0] == SANTROLLER_DEVICE_REPORT_ID_JOYSTICK_INPUT) {
-//             HIDAPI_DriverSantroller_HandleStatePacket(joystick, ctx, data, size);
-//         }
-//     }
-
-//     if (size < 0) {
-//         // Read error, device is disconnected
-//         HIDAPI_JoystickDisconnected(device, device->joysticks[0]);
-//     }
-//     return (size >= 0);
+    if (size < 0) {
+        // Read error, device is disconnected
+        HIDAPI_JoystickDisconnected(device, device->joysticks[0]);
+    }
+    return (size >= 0);
 }
 
 static void HIDAPI_DriverSantroller_CloseJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)
