@@ -25,9 +25,9 @@
 #include "../../SDL_hints_c.h"
 #include "../SDL_sysjoystick.h"
 
-#include "SDL_hidapijoystick_c.h"
 #include "SDL_hidapi_rumble.h"
 #include "SDL_hidapi_santroller.h"
+#include "SDL_hidapijoystick_c.h"
 #include "SDL_report_descriptor.h"
 
 #ifdef SDL_JOYSTICK_HIDAPI_SANTROLLER
@@ -41,42 +41,47 @@
 #define DEBUG_SANTROLLER_INIT
 #endif
 
-enum {
-  SDL_SANTROLLER_SUB_TYPE_GAMEPAD = 1,
-  SDL_SANTROLLER_SUB_TYPE_DANCEPAD = 2,
-  SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR = 3,
-  SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR = 4,
-  SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS = 5,
-  SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS = 6,
-  SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR = 7,
-  SDL_SANTROLLER_SUB_TYPE_DJ_HERO_TURNTABLE = 8,
-  SDL_SANTROLLER_SUB_TYPE_STAGE_KIT = 9,
-  SDL_SANTROLLER_SUB_TYPE_DISNEY_INFINITY = 10,
-  SDL_SANTROLLER_SUB_TYPE_SKYLANDERS = 11,
-  SDL_SANTROLLER_SUB_TYPE_LEGO_DIMENSIONS = 12,
-  SDL_SANTROLLER_SUB_TYPE_PROJECT_DIVA = 13,
-  SDL_SANTROLLER_SUB_TYPE_GUITAR_FREAKS = 14,
-  SDL_SANTROLLER_SUB_TYPE_WHEEL = 15,
-  SDL_SANTROLLER_SUB_TYPE_PRO_KEYS = 16,
-  SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG = 17,
-  SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE = 18,
-  SDL_SANTROLLER_SUB_TYPE_KEYBOARD_MOUSE = 19,
-  SDL_SANTROLLER_SUB_TYPE_FIGHT_STICK = 20,
-  SDL_SANTROLLER_SUB_TYPE_FLIGHT_STICK = 21,
-  SDL_SANTROLLER_SUB_TYPE_POP_N_MUSIC = 22,
-  SDL_SANTROLLER_SUB_TYPE_DJ_MAX = 23,
-  SDL_SANTROLLER_SUB_TYPE_TAIKO = 24,
-  SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM = 25,
-  SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR = 26,
-  SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR = 27,
+enum
+{
+    SDL_SANTROLLER_SUB_TYPE_GAMEPAD = 1,
+    SDL_SANTROLLER_SUB_TYPE_DANCEPAD = 2,
+    SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR = 3,
+    SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR = 4,
+    SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS = 5,
+    SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS = 6,
+    SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR = 7,
+    SDL_SANTROLLER_SUB_TYPE_DJ_HERO_TURNTABLE = 8,
+    SDL_SANTROLLER_SUB_TYPE_STAGE_KIT = 9,
+    SDL_SANTROLLER_SUB_TYPE_DISNEY_INFINITY = 10,
+    SDL_SANTROLLER_SUB_TYPE_SKYLANDERS = 11,
+    SDL_SANTROLLER_SUB_TYPE_LEGO_DIMENSIONS = 12,
+    SDL_SANTROLLER_SUB_TYPE_PROJECT_DIVA = 13,
+    SDL_SANTROLLER_SUB_TYPE_GUITAR_FREAKS = 14,
+    SDL_SANTROLLER_SUB_TYPE_WHEEL = 15,
+    SDL_SANTROLLER_SUB_TYPE_PRO_KEYS = 16,
+    SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG = 17,
+    SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE = 18,
+    SDL_SANTROLLER_SUB_TYPE_KEYBOARD_MOUSE = 19,
+    SDL_SANTROLLER_SUB_TYPE_FIGHT_STICK = 20,
+    SDL_SANTROLLER_SUB_TYPE_FLIGHT_STICK = 21,
+    SDL_SANTROLLER_SUB_TYPE_POP_N_MUSIC = 22,
+    SDL_SANTROLLER_SUB_TYPE_DJ_MAX = 23,
+    SDL_SANTROLLER_SUB_TYPE_TAIKO = 24,
+    SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM = 25,
+    SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR = 26,
+    SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR = 27,
 };
 
-#define SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE  3  // Size of features report
-#define SANTROLLER_DEVICE_FEATURES_SET_REPORT_SIZE  2  // Size of features report
-#define SANTROLLER_DEVICE_FEATURES_USAGE        0x2882 // Usage page for features report
+#define SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE 3      // Size of features report
+#define SANTROLLER_DEVICE_FEATURES_SET_REPORT_SIZE 2      // Size of features report
+#define SANTROLLER_DEVICE_FEATURES_USAGE           0x2882 // Usage page for features report
 
 #define SANTROLLER_DEVICE_REPORT_ID_JOYSTICK_INPUT  0x01
-#define SANTROLLER_DEVICE_REPORT_ID_FEATURES    0x10
+#define SANTROLLER_DEVICE_REPORT_ID_COMMAND_OUTPUT  0x01
+#define SANTROLLER_DEVICE_REPORT_ID_FEATURES        0x10
+#define SANTROLLER_DEVICE_REPORT_COMMAND_RUMBLE     0x5A
+#define SANTROLLER_DEVICE_REPORT_COMMAND_PLAYER_LED 0x5C
+#define SANTROLLER_DEVICE_REPORT_COMMAND_RGB_LED    0x5D
 
 typedef struct
 {
@@ -100,22 +105,21 @@ typedef struct
     Uint8 last_state[USB_PACKET_LENGTH];
 } SDL_DriverSantroller_Context;
 
-
 static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
     int written = 0;
 
     // Originally, santroller devices only supported enumerating as a single device at a time
-    // and encoded all features into the device version. 
-    
+    // and encoded all features into the device version.
+
     // Santroller V2 added support for mulitple sumultaneous device, so since bcdDevice would
-    // be the same across multiple devices, they moved features to a HID report instead. 
-    // Check for presence of that report to determine which device we are communicating with, 
+    // be the same across multiple devices, they moved features to a HID report instead.
+    // Check for presence of that report to determine which device we are communicating with,
     // and if it's a V2 device, query features from the device instead of relying on version encoding.
     Uint8 descriptor[1024];
     int descriptor_len = SDL_hid_get_report_descriptor(device->dev, descriptor, sizeof(descriptor));
-    SDL_ReportDescriptor* parsed_descriptor = SDL_ParseReportDescriptor(descriptor, descriptor_len);
+    SDL_ReportDescriptor *parsed_descriptor = SDL_ParseReportDescriptor(descriptor, descriptor_len);
     if (SDL_DescriptorHasUsage(parsed_descriptor, 0xFF00, SANTROLLER_DEVICE_FEATURES_USAGE)) {
         // New revesion device, request features from the device
         // Attempt to send the SDL features get command.
@@ -149,9 +153,9 @@ static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
                 continue;
             }
 
-    #ifdef DEBUG_SANTROLLER_PROTOCOL
+#ifdef DEBUG_SANTROLLER_PROTOCOL
             HIDAPI_DumpPacket("Santroller packet: size = %d", data, read);
-    #endif
+#endif
 
             if ((read == SANTROLLER_DEVICE_FEATURES_GET_REPORT_SIZE) && (data[0] == SANTROLLER_DEVICE_REPORT_ID_FEATURES)) {
                 ctx->sub_type = data[1];
@@ -163,21 +167,21 @@ static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
                 ctx->new_format = true;
                 ctx->buttons_count = ctx->dpad_as_buttons ? 16 : 12; // Dance pads have 4 additional buttons for the dpad directions
                 ctx->axes_count = 6;
-    #if defined(DEBUG_SANTROLLER_INIT)
+#if defined(DEBUG_SANTROLLER_INIT)
                 SDL_Log("Received Santroller SDL Features response: %d %d", data[1], data[2]);
-    #endif
+#endif
                 return true;
             }
         }
     } else {
         // Older revision device, sub_type is encoded into device version
         ctx->sub_type = (device->version >> 8) & 0xFF;
-        // Older devices don't expose capabilities, but will ignore anything 
+        // Older devices don't expose capabilities, but will ignore anything
         // they don't support, so just assume everything is supported
         ctx->player_leds_supported = true;
         ctx->joystick_rgb_supported = true;
         ctx->instrument_led_supported = true;
-        ctx->rumble_supported = true;
+        ctx->rumble_supported = ctx->sub_type == SDL_SANTROLLER_SUB_TYPE_GAMEPAD;
         ctx->dpad_as_buttons = false;
         ctx->new_format = false;
         ctx->buttons_count = 12; // Dance pads have 4 additional buttons for the dpad directions
@@ -187,7 +191,6 @@ static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
 
     return false;
 }
-
 
 static void HIDAPI_DriverSantroller_RegisterHints(SDL_HintCallback callback, void *userdata)
 {
@@ -228,28 +231,28 @@ static bool HIDAPI_DriverSantroller_InitDevice(SDL_HIDAPI_Device *device)
     }
 
     switch (ctx->sub_type) {
-        case SDL_SANTROLLER_SUB_TYPE_GAMEPAD:
-            device->joystick_type = SDL_JOYSTICK_TYPE_GAMEPAD;
-            break;
-        case SDL_SANTROLLER_SUB_TYPE_DANCEPAD:
-            device->joystick_type = SDL_JOYSTICK_TYPE_DANCE_PAD;
-            break;
-        case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR:
-        case SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR:
-        case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR:
-        case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR:
-        case SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR:
-        case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG:
-        case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE:
-            device->joystick_type = SDL_JOYSTICK_TYPE_GUITAR;
-            break;
-        case SDL_SANTROLLER_SUB_TYPE_TAIKO:
-        case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS:
-        case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS:
-        case SDL_SANTROLLER_SUB_TYPE_STAGE_KIT:
-        case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM:
-            device->joystick_type = SDL_JOYSTICK_TYPE_DRUM_KIT;
-            break;
+    case SDL_SANTROLLER_SUB_TYPE_GAMEPAD:
+        device->joystick_type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        break;
+    case SDL_SANTROLLER_SUB_TYPE_DANCEPAD:
+        device->joystick_type = SDL_JOYSTICK_TYPE_DANCE_PAD;
+        break;
+    case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_GUITAR:
+    case SDL_SANTROLLER_SUB_TYPE_ROCK_REVOLUTION_GUITAR:
+    case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR:
+    case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR:
+    case SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR:
+    case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG:
+    case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE:
+        device->joystick_type = SDL_JOYSTICK_TYPE_GUITAR;
+        break;
+    case SDL_SANTROLLER_SUB_TYPE_TAIKO:
+    case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS:
+    case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS:
+    case SDL_SANTROLLER_SUB_TYPE_STAGE_KIT:
+    case SDL_SANTROLLER_SUB_TYPE_POWER_GIG_DRUM:
+        device->joystick_type = SDL_JOYSTICK_TYPE_DRUM_KIT;
+        break;
     }
 
     return HIDAPI_JoystickConnected(device, NULL);
@@ -263,8 +266,13 @@ static int HIDAPI_DriverSantroller_GetDevicePlayerIndex(SDL_HIDAPI_Device *devic
 static void HIDAPI_DriverSantroller_SetDevicePlayerIndex(SDL_HIDAPI_Device *device, SDL_JoystickID instance_id, int player_index)
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
-}
 
+    if (ctx->player_led_supported) {
+        Uint8 playerReport[32] = { SANTROLLER_DEVICE_REPORT_ID_COMMAND_OUTPUT, SANTROLLER_DEVICE_REPORT_COMMAND_PLAYER_LED, (Uint8)(player_index) };
+
+        SDL_hid_write(device->dev, playerReport, sizeof(playerReport));
+    }
+}
 
 static bool HIDAPI_DriverSantroller_OpenJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)
 {
@@ -292,21 +300,12 @@ static bool HIDAPI_DriverSantroller_RumbleJoystick(SDL_HIDAPI_Device *device, SD
 
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
 
-    // if (ctx->rumble_supported) {
-    //     SANTROLLER_HAPTIC_S hapticData = { 0 };
-    //     Uint8 hapticReport[SANTROLLER_DEVICE_REPORT_COMMAND_SIZE] = { SANTROLLER_DEVICE_REPORT_ID_OUTPUT_CMDDAT, SANTROLLER_DEVICE_COMMAND_HAPTIC };
+    if (ctx->rumble_supported) {
+        Uint8 hapticReport[32] = { SANTROLLER_DEVICE_REPORT_ID_COMMAND_OUTPUT, SANTROLLER_DEVICE_REPORT_COMMAND_RUMBLE, (Uint8)(low_frequency_rumble >> 8), (Uint8)(high_frequency_rumble >> 8) };
 
-    //     // Low Frequency  = Left
-    //     // High Frequency = Right
-    //     hapticData.type_2.left.amplitude = (Uint8) (low_frequency_rumble >> 8);
-    //     hapticData.type_2.right.amplitude = (Uint8)(high_frequency_rumble >> 8);
-
-    //     HapticsType2Pack(&hapticData, &(hapticReport[2]));
-
-    //     SDL_HIDAPI_SendRumble(device, hapticReport, SANTROLLER_DEVICE_REPORT_COMMAND_SIZE);
-
-    //     return true;
-    // }
+        SDL_hid_write(device->dev, hapticReport, sizeof(hapticReport));
+        return true;
+    }
 
     return SDL_Unsupported();
 }
@@ -340,17 +339,14 @@ static bool HIDAPI_DriverSantroller_SetJoystickLED(SDL_HIDAPI_Device *device, SD
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
 
-    // if (ctx->joystick_rgb_supported) {
-    //     Uint8 joystickRGBCommand[SANTROLLER_DEVICE_REPORT_COMMAND_SIZE] = { SANTROLLER_DEVICE_REPORT_ID_OUTPUT_CMDDAT, SANTROLLER_DEVICE_COMMAND_JOYSTICKRGB, red, green, blue };
-    //     int joystickRGBBytesWritten = SDL_hid_write(device->dev, joystickRGBCommand, SANTROLLER_DEVICE_REPORT_COMMAND_SIZE);
+    if (ctx->joystick_rgb_supported) {
 
-    //     if (joystickRGBBytesWritten < 0) {
-    //         SDL_SetError("Santroller device joystick rgb command could not write");
-    //         return false;
-    //     }
+        Uint8 playerReport[32] = { SANTROLLER_DEVICE_REPORT_ID_COMMAND_OUTPUT, SANTROLLER_DEVICE_REPORT_COMMAND_RGB_LED, red, green, blue};
 
-    //     return true;
-    // }
+        SDL_hid_write(device->dev, playerReport, sizeof(playerReport));
+
+        return true;
+    }
     return SDL_Unsupported();
 }
 
@@ -361,12 +357,6 @@ static bool HIDAPI_DriverSantroller_SendJoystickEffect(SDL_HIDAPI_Device *device
 
 static bool HIDAPI_DriverSantroller_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
 {
-    SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
-
-    // if (ctx->accelerometer_supported || ctx->gyroscope_supported) {
-    //     ctx->sensors_enabled = enabled;
-    //     return true;
-    // }
     return SDL_Unsupported();
 }
 
@@ -493,8 +483,7 @@ static void HIDAPI_DriverSantroller_HandleStatePacketOldGamepad(SDL_Joystick *jo
         }
         SDL_SendJoystickHat(timestamp, joystick, 0, hat);
     }
-    if (ctx->last_state[1] != data[1]) 
-    {
+    if (ctx->last_state[1] != data[1]) {
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, ((data[1] & 0x01) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x02) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x04) != 0));
@@ -566,8 +555,7 @@ static void HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroGuitar(SDL_Joy
         }
         SDL_SendJoystickHat(timestamp, joystick, 0, hat);
     }
-    if (ctx->last_state[1] != data[1]) 
-    {
+    if (ctx->last_state[1] != data[1]) {
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x01) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x02) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[1] & 0x04) != 0));
@@ -631,8 +619,7 @@ static void HIDAPI_DriverSantroller_HandleStatePacketOldRockBandGuitar(SDL_Joyst
         }
         SDL_SendJoystickHat(timestamp, joystick, 0, hat);
     }
-    if (ctx->last_state[1] != data[1] || ctx->last_state[2] != data[2]) 
-    {
+    if (ctx->last_state[1] != data[1] || ctx->last_state[2] != data[2]) {
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, ((data[1] & 0x01) != 0) || ((data[1] & 0x20) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, ((data[1] & 0x02) != 0) || ((data[1] & 0x40) != 0));
         SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, ((data[1] & 0x04) != 0) || ((data[1] & 0x80) != 0));
