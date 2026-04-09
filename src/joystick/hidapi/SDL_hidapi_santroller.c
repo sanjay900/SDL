@@ -25,9 +25,9 @@
 #include "../../SDL_hints_c.h"
 #include "../SDL_sysjoystick.h"
 
+#include "SDL_hidapijoystick_c.h"
 #include "SDL_hidapi_rumble.h"
 #include "SDL_hidapi_santroller.h"
-#include "SDL_hidapijoystick_c.h"
 #include "SDL_report_descriptor.h"
 
 #ifdef SDL_JOYSTICK_HIDAPI_SANTROLLER
@@ -267,7 +267,7 @@ static void HIDAPI_DriverSantroller_SetDevicePlayerIndex(SDL_HIDAPI_Device *devi
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
 
-    if (ctx->player_led_supported) {
+    if (ctx->player_leds_supported) {
         Uint8 playerReport[32] = { SANTROLLER_DEVICE_REPORT_ID_COMMAND_OUTPUT, SANTROLLER_DEVICE_REPORT_COMMAND_PLAYER_LED, (Uint8)(player_index) };
 
         SDL_hid_write(device->dev, playerReport, sizeof(playerReport));
