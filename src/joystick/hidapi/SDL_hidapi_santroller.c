@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 2025 Mitchell Cairns <mitch.cairns@handheldlegend.com>
+  Copyright (C) 2026 Sanjay Govind <sanjay.govind9@gmail.com>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -27,7 +27,6 @@
 
 #include "SDL_hidapijoystick_c.h"
 #include "SDL_hidapi_rumble.h"
-#include "SDL_hidapi_santroller.h"
 #include "SDL_report_descriptor.h"
 
 #ifdef SDL_JOYSTICK_HIDAPI_SANTROLLER
@@ -184,7 +183,7 @@ static bool RetrieveSDLFeatures(SDL_HIDAPI_Device *device)
         ctx->rumble_supported = ctx->sub_type == SDL_SANTROLLER_SUB_TYPE_GAMEPAD;
         ctx->dpad_as_buttons = false;
         ctx->new_format = false;
-        ctx->buttons_count = 12; // Dance pads have 4 additional buttons for the dpad directions
+        ctx->buttons_count = 12;
         ctx->axes_count = 6;
         return true;
     }
@@ -642,6 +641,35 @@ static void HIDAPI_DriverSantroller_HandleStatePacketOldRockBandGuitar(SDL_Joyst
     SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
 }
 
+static void HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroDrums(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+
+static void HIDAPI_DriverSantroller_HandleStatePacketOldRockBandDrums(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+
+static void HIDAPI_DriverSantroller_HandleStatePacketOldLiveGuitar(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+
+static void HIDAPI_DriverSantroller_HandleStatePacketOldTurntable(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+static void HIDAPI_DriverSantroller_HandleStatePacketOldProKeys(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+
+static void HIDAPI_DriverSantroller_HandleStatePacketOldProGuitar(SDL_Joystick *joystick, SDL_DriverSantroller_Context *ctx, Uint8 *data, int size)
+{
+    SDL_memcpy(ctx->last_state, data, SDL_min((size_t)size, sizeof(ctx->last_state)));
+}
+
 static bool HIDAPI_DriverSantroller_UpdateDevice(SDL_HIDAPI_Device *device)
 {
     SDL_DriverSantroller_Context *ctx = (SDL_DriverSantroller_Context *)device->context;
@@ -669,14 +697,33 @@ static bool HIDAPI_DriverSantroller_UpdateDevice(SDL_HIDAPI_Device *device)
             HIDAPI_DriverSantroller_HandleStatePacketNew(joystick, ctx, data, size);
         } else {
             switch (ctx->sub_type) {
-            case SDL_SANTROLLER_SUB_TYPE_GAMEPAD:
-                HIDAPI_DriverSantroller_HandleStatePacketOldGamepad(joystick, ctx, data, size);
-                break;
             case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_GUITAR:
                 HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroGuitar(joystick, ctx, data, size);
                 break;
             case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_GUITAR:
                 HIDAPI_DriverSantroller_HandleStatePacketOldRockBandGuitar(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_GUITAR_HERO_DRUMS:
+                HIDAPI_DriverSantroller_HandleStatePacketOldGuitarHeroDrums(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_ROCK_BAND_DRUMS:
+                HIDAPI_DriverSantroller_HandleStatePacketOldRockBandDrums(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_LIVE_GUITAR:
+                HIDAPI_DriverSantroller_HandleStatePacketOldLiveGuitar(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_DJ_HERO_TURNTABLE:
+                HIDAPI_DriverSantroller_HandleStatePacketOldTurntable(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_PRO_KEYS:
+                HIDAPI_DriverSantroller_HandleStatePacketOldProKeys(joystick, ctx, data, size);
+                break;
+            case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_MUSTANG:
+            case SDL_SANTROLLER_SUB_TYPE_PRO_GUITAR_SQUIRE:
+                HIDAPI_DriverSantroller_HandleStatePacketOldProGuitar(joystick, ctx, data, size);
+                break;
+            default:
+                HIDAPI_DriverSantroller_HandleStatePacketOldGamepad(joystick, ctx, data, size);
                 break;
             }
         }
