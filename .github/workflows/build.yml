@@ -50,7 +50,7 @@ jobs:
             --github-variable-prefix platforms \
             --github-ci \
             --verbose \
-            ${{ (github.repository_owner != 'libsdl-org' && '--no-artifact') || '' }} \
+            ${{ (github.repository_owner != 'libsdl-org' && '') || '' }} \
             --commit-message-file /tmp/commit_message.txt
   level1:
     needs: [controller]
