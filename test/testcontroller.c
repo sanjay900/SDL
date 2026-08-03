@@ -2479,6 +2479,7 @@ SDL_AppResult SDLCALL SDL_AppInit(void **appstate, int argc, char *argv[])
     SDL_SetHint(SDL_HINT_JOYSTICK_ROG_CHAKRAM, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_LINUX_DEADZONES, "1");
+    SDL_SetHint(SDL_HINT_HIDAPI_LIBUSB_WHITELIST, "0");
 
     /* Enable input debug logging */
     SDL_SetLogPriority(SDL_LOG_CATEGORY_INPUT, SDL_LOG_PRIORITY_DEBUG);
