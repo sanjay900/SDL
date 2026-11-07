@@ -221,8 +221,14 @@ typedef enum SDL_EventType
     SDL_EVENT_GAMEPAD_STEAM_HANDLE_UPDATED,  /**< Gamepad Steam handle has changed */
     SDL_EVENT_GAMEPAD_CAPSENSE_TOUCH,       /**< Gamepad capsense was touched */
     SDL_EVENT_GAMEPAD_CAPSENSE_RELEASE,     /**< Gamepad capsense was released */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_ANALOG_INPUT_MOTION,     /**< Gamepad instrument input motion */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_DIGITAL_INPUT_DOWN,     /**< Gamepad instrument input pressed */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_DIGITAL_INPUT_UP,       /**< Gamepad instrument input released */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_KEY_DOWN,     /**< Gamepad instrument key was pressed */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_KEY_UP,       /**< Gamepad instrument key was released */
+    SDL_EVENT_GAMEPAD_INSTRUMENT_STRING_MOTION,       /**< Gamepad instrument string had its frets pressed or strings strummed */
     SDL_EVENT_GAMEPAD_FIRST = SDL_EVENT_GAMEPAD_AXIS_MOTION,
-    SDL_EVENT_GAMEPAD_LAST = SDL_EVENT_GAMEPAD_CAPSENSE_RELEASE,
+    SDL_EVENT_GAMEPAD_LAST = SDL_EVENT_GAMEPAD_INSTRUMENT_STRING_MOTION,
 
     /* Touch events */
     SDL_EVENT_FINGER_DOWN      = 0x700,
@@ -769,6 +775,67 @@ typedef struct SDL_GamepadCapSenseEvent
 } SDL_GamepadCapSenseEvent;
 
 /**
+ * Gamepad instrument input event structure (event.ginstrumentinput.*)
+ *
+ * \since This struct is available since SDL 3.2.0.
+ */
+typedef struct SDL_GamepadInstrumentAnalogInputEvent
+{
+    SDL_EventType type; /**< SDL_EVENT_GAMEPAD_INSTRUMENT_ANALOG_INPUT_MOTION */
+    Uint32 reserved;
+    Uint64 timestamp;   /**< In nanoseconds, populated using SDL_GetTicksNS() */
+    SDL_JoystickID which; /**< The joystick instance id */
+    Uint8 input;       /**< The gamepad instrument input (SDL_GamepadInstrumentInput) */
+    float velocity;       /**< The velocity associated with the instrument input */
+} SDL_GamepadInstrumentAnalogInputEvent;
+
+/**
+ * Gamepad instrument input event structure (event.ginstrumentinput.*)
+ *
+ * \since This struct is available since SDL 3.2.0.
+ */
+typedef struct SDL_GamepadInstrumentDigitalInputEvent
+{
+    SDL_EventType type; /**< SDL_EVENT_GAMEPAD_INSTRUMENT_DIGITAL_INPUT_DOWN or SDL_EVENT_GAMEPAD_INSTRUMENT_DIGITAL_INPUT_UP */
+    Uint32 reserved;
+    Uint64 timestamp;   /**< In nanoseconds, populated using SDL_GetTicksNS() */
+    SDL_JoystickID which; /**< The joystick instance id */
+    Uint8 input;       /**< The gamepad instrument input (SDL_GamepadInstrumentInput) */
+    bool state;        /**< true if the digital input is pressed */
+} SDL_GamepadInstrumentDigitalInputEvent;
+
+/**
+ * Gamepad instrument string motion event structure (event.ginstrumentkey.*)
+ *
+ * \since This struct is available since SDL 3.2.0.
+ */
+typedef struct SDL_GamepadInstrumentStringMotionEvent
+{
+    SDL_EventType type; /**< SDL_EVENT_GAMEPAD_INSTRUMENT_KEY_DOWN or SDL_EVENT_GAMEPAD_INSTRUMENT_KEY_UP */
+    Uint32 reserved;
+    Uint64 timestamp;   /**< In nanoseconds, populated using SDL_GetTicksNS() */
+    SDL_JoystickID which; /**< The joystick instance id */
+    bool down;              /**< true if the key is pressed */
+    float velocity;     /**< The velocity the key was pressed with */
+} SDL_GamepadInstrumentStringMotionEvent;
+
+/**
+ * Gamepad instrument key event structure (event.ginstrumentkey.*)
+ *
+ * \since This struct is available since SDL 3.2.0.
+ */
+typedef struct SDL_GamepadInstrumentKeyEvent
+{
+    SDL_EventType type; /**< SDL_EVENT_GAMEPAD_INSTRUMENT_KEY */
+    Uint32 reserved;
+    Uint64 timestamp;   /**< In nanoseconds, populated using SDL_GetTicksNS() */
+    SDL_JoystickID which; /**< The joystick instance id */
+    Uint8 string;       /**< The gamepad instrument string */
+    Uint8 fret;         /**< The gamepad instrument string fret */
+    float velocity;     /**< The velocity associated with the instrument key motion */
+} SDL_GamepadInstrumentKeyEvent;
+
+/**
  * Audio device event structure (event.adevice.*)
  *
  * Note that SDL will send a SDL_EVENT_AUDIO_DEVICE_ADDED event for every
@@ -1129,6 +1196,10 @@ typedef union SDL_Event
     SDL_GamepadTouchpadEvent gtouchpad;     /**< Gamepad touchpad event data */
     SDL_GamepadSensorEvent gsensor;         /**< Gamepad sensor event data */
     SDL_GamepadCapSenseEvent gcapsense;     /**< Gamepad capsense event data */
+    SDL_GamepadInstrumentDigitalInputEvent ginstrumentdigital; /**< Gamepad instrument digital input event data */
+    SDL_GamepadInstrumentAnalogInputEvent ginstrumentanalog; /**< Gamepad instrument analog input event data */
+    SDL_GamepadInstrumentKeyEvent ginstrumentkey; /**< Gamepad instrument key event data */
+    SDL_GamepadInstrumentStringMotionEvent ginstrumentstring; /**< Gamepad instrument string motion event data */
     SDL_AudioDeviceEvent adevice;           /**< Audio device event data */
     SDL_CameraDeviceEvent cdevice;          /**< Camera device event data */
     SDL_SensorEvent sensor;                 /**< Sensor event data */
